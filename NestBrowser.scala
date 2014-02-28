@@ -1,8 +1,15 @@
 import scala.reflect.runtime.{universe => ru}
 import scala.collection.immutable
 
+// TODO
+// - clean up code
+// - make github, put example there
+// - maven
+// - reddit
+
 sealed trait Tree
 case class Object(name: String, fields: immutable.ListMap[String, Tree]) extends Tree
+// Only allow strings as keys
 case class Mapping(map: Map[String, Tree]) extends Tree
 case class Sequence(seq: List[Tree]) extends Tree
 case class Leaf(value: Any) extends Tree
@@ -18,6 +25,9 @@ object Tree {
       case ls: Array[_] => Sequence(ls.map(
         x => build(x, obj_type.asInstanceOf[ru.TypeRefApi].args.head)
       ).toList)
+      case m: Map[_, _] => Mapping(m.map({
+        case (k, v) => k.toString -> build(v, obj_type.asInstanceOf[ru.TypeRefApi].args.last)
+      }))
       // breaks on caseClassParamsOf, so a special case
       case x: String => Leaf(x)
       case _ => {
@@ -78,18 +88,26 @@ object AsciiTreeViewer {
         seq.foreach(x => show(x, level + 1, true))
         println(("  " * level) + "]")
       }
+      case Mapping(m) => {
+        println(header + "{")
+        for ((k, v) <- m) {
+          print(("  " * (level + 1)) + k + " -> ")
+          show(v, level + 1, false)
+        }
+        println(("  " * level) + "}")
+      }
       case Leaf(x) => println(header + x)
     }
   }
 }
 
 case class Scenario(agents: List[Agent], modes: Array[String], name: String, id: Long)
-case class Agent(num: Int, times: Array[Double])
+case class Agent(num: Int, times: Map[String, Double])
 
 object Test {
   def main(args: Array[String]) {
-    val a1 = Agent(1, Array(2.0, 5.0))
-    val a2 = Agent(2, Array(3.0, 2.3))
+    val a1 = Agent(1, Map("baseline" -> 2.0, "tolls" -> 5.0))
+    val a2 = Agent(2, Map("baseline" -> 3.0, "tolls" -> 2.3))
     val s = Scenario(List(a1, a2), Array("baseline", "tolls"), "trial", 42)
     AsciiTreeViewer.view(Tree.build(s, ru.typeOf[Scenario]))
   }
