@@ -2,7 +2,7 @@ import scala.reflect.runtime.{universe => ru}
 import scala.collection.immutable
 
 sealed trait Tree
-case class Object(fields: immutable.ListMap[String, Tree]) extends Tree
+case class Object(name: String, fields: immutable.ListMap[String, Tree]) extends Tree
 case class Mapping(map: Map[String, Tree]) extends Tree
 case class Sequence(seq: List[Tree]) extends Tree
 case class Leaf(value: Any) extends Tree
@@ -26,7 +26,7 @@ object Tree {
         if (fields.isEmpty) {
           Leaf(obj)
         } else {
-          Object(immutable.ListMap[String, Tree]() ++ (fields.keys.map(name => name -> build(get_field(obj, obj_type, name), fields(name)))))
+          Object(obj_type.toString, immutable.ListMap[String, Tree]() ++ (fields.keys.map(name => name -> build(get_field(obj, obj_type, name), fields(name)))))
         }
       }
     }
@@ -56,6 +56,33 @@ object Tree {
   }
 }
 
+object AsciiTreeViewer {
+  def view(t: Tree) = show(t, 0, true)
+
+  private def show(t: Tree, level: Int, indent: Boolean) {
+    val header =
+      if (indent)
+        "  " * level
+      else
+        ""
+    t match {
+      case Object(name, fields) => {
+        println(header + name)
+        for ((field, value) <- fields) {
+          print(("  " * (level + 1)) + field + " = ")
+          show(value, level + 1, false)
+        }
+      }
+      case Sequence(seq) => {
+        println(header + "[")
+        seq.foreach(x => show(x, level + 1, true))
+        println(("  " * level) + "]")
+      }
+      case Leaf(x) => println(header + x)
+    }
+  }
+}
+
 case class Scenario(agents: List[Agent], modes: Array[String], name: String, id: Long)
 case class Agent(num: Int, times: Array[Double])
 
@@ -64,8 +91,6 @@ object Test {
     val a1 = Agent(1, Array(2.0, 5.0))
     val a2 = Agent(2, Array(3.0, 2.3))
     val s = Scenario(List(a1, a2), Array("baseline", "tolls"), "trial", 42)
-    val t = Tree.build(s, ru.typeOf[Scenario])
-    println(s)
-    println(t)
+    AsciiTreeViewer.view(Tree.build(s, ru.typeOf[Scenario]))
   }
 }
