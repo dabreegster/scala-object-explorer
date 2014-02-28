@@ -32,10 +32,20 @@ object Test {
     }
   }
 
+  def get_field(obj: Any, obj_tpe: ru.Type, field: String): Any = {
+    val m = ru.runtimeMirror(obj.getClass.getClassLoader)
+    val term = obj_tpe.declaration(ru.newTermName(field)).asTerm
+    val im = m.reflect(obj)
+    return im.reflectField(term).get
+  }
+
   def main(args: Array[String]) {
     val a1 = Agent(1, Array(2.0, 5.0))
     val a2 = Agent(2, Array(3.0, 2.3))
     val s = Scenario(List(a1, a2), Array("baseline", "tolls"), "trial", 42)
-    println(caseClassParamsOf[Scenario])
+    for ((name, tpe) <- caseClassParamsOf[Scenario]) {
+      val value = get_field(s, ru.typeOf[Scenario], name)
+      println(s"$name ($tpe) = $value")
+    }
   }
 }
