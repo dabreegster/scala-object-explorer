@@ -1,0 +1,8 @@
+#!/bin/bash
+
+rm -f target/pack/lib/nestbrowser_2.10-0.1-SNAPSHOT.jar
+DEPS="target/pack/lib/*"
+CLASSES="target/scala-2.10/classes/"
+CLASSPATH="$CLASSES:$DEPS"
+SCALA="java -cp $CLASSPATH -Dscala.usejavacp=true"
+$SCALA Test
