@@ -20,4 +20,30 @@ val s = Scenario(List(a1, a2), Array("baseline", "tolls"), "trial", 42)
 AsciiTreeViewer.view(DumpTree.build(s, scala.reflect.runtime.universe.typeOf[Scenario]))
 ```
 
+The output is:
+
+```
+Scenario
+  agents = [
+    Agent
+      num = 1
+      times = {
+        baseline -> 2.0
+        tolls -> 5.0
+      }
+    Agent
+      num = 2
+      times = {
+        baseline -> 3.0
+        tolls -> 2.3
+      }
+  ]
+  modes = [
+    baseline
+    tolls
+  ]
+  name = trial
+  id = 42
+```
+
 It wouldn't be hard to make a graphical viewer too using Swing's JTree.
