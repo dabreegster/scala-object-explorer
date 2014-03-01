@@ -1,6 +1,6 @@
 #!/bin/bash
 
-rm -f target/pack/lib/nestbrowser_2.10-0.1-SNAPSHOT.jar
+rm -f target/pack/lib/scala-object-explorer_2.10-0.1.jar
 DEPS="target/pack/lib/*"
 CLASSES="target/scala-2.10/classes/"
 CLASSPATH="$CLASSES:$DEPS"

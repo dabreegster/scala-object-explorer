@@ -1,25 +1,19 @@
 import scala.reflect.runtime.{universe => ru}
 import scala.collection.immutable
 
-// TODO
-// - clean up code
-// - make github, put example there
-// - maven
-// - reddit
-
 sealed trait Tree
 case class Object(name: String, fields: immutable.ListMap[String, Tree]) extends Tree
-// Only allow strings as keys
+// Maps with non-string keys will be coerced
 case class Mapping(map: Map[String, Tree]) extends Tree
 case class Sequence(seq: List[Tree]) extends Tree
 case class Leaf(value: Any) extends Tree
 
 object Tree {
+  // If 'x' belongs to class Foo, call: Tree.build(x, scala.reflect.runtime.universe.typeOf[Foo])
   def build(obj: Any, obj_type: ru.Type): Tree = {
     obj match {
       case ls: List[Any] => Sequence(ls.map(
-        // get parameter type from
-        // http://stackoverflow.com/questions/12842729/finding-type-parameters-via-reflection-in-scala-2-10
+        // Thanks http://stackoverflow.com/questions/12842729
         x => build(x, obj_type.asInstanceOf[ru.TypeRefApi].args.head)
       ).toList)
       case ls: Array[_] => Sequence(ls.map(
@@ -28,34 +22,34 @@ object Tree {
       case m: Map[_, _] => Mapping(m.map({
         case (k, v) => k.toString -> build(v, obj_type.asInstanceOf[ru.TypeRefApi].args.last)
       }))
-      // breaks on caseClassParamsOf, so a special case
+      // case_class_fields breaks on strings, so a special case
       case x: String => Leaf(x)
       case _ => {
-        // TODO messy. but seems to work.
-        val fields = caseClassParamsOf(obj_type)
+        // TODO Ideally, detect case classes from primitives. This seems to work.
+        val fields = case_class_fields(obj_type)
         if (fields.isEmpty) {
           Leaf(obj)
         } else {
-          Object(obj_type.toString, immutable.ListMap[String, Tree]() ++ (fields.keys.map(name => name -> build(get_field(obj, obj_type, name), fields(name)))))
+          Object(obj_type.toString, immutable.ListMap[String, Tree]() ++ (
+            fields.keys.map(name => name -> build(get_field(obj, obj_type, name), fields(name)))
+          ))
         }
       }
     }
   }
 
-  // from
-  // http://stackoverflow.com/questions/16079113/scala-2-10-reflection-how-do-i-extract-the-field-values-from-a-case-class
-  private def caseClassParamsOf(tpe: ru.Type): immutable.ListMap[String, ru.Type] = {
-    val constructorSymbol = tpe.declaration(ru.nme.CONSTRUCTOR)
-    val defaultConstructor =
-      if (constructorSymbol.isMethod) constructorSymbol.asMethod
-      else {
-        val ctors = constructorSymbol.asTerm.alternatives
-        ctors.map { _.asMethod }.find { _.isPrimaryConstructor }.get
-      }
+  // Thanks http://stackoverflow.com/questions/16079113
+  private def case_class_fields(tpe: ru.Type): immutable.ListMap[String, ru.Type] = {
+    val ctor = tpe.declaration(ru.nme.CONSTRUCTOR)
+    val default_ctor =
+      if (ctor.isMethod)
+        ctor.asMethod
+      else
+        ctor.asTerm.alternatives.map(_.asMethod).find(_.isPrimaryConstructor).get
 
-    return immutable.ListMap[String, ru.Type]() ++ defaultConstructor.paramss.reduceLeft(_ ++ _).map {
+    return immutable.ListMap[String, ru.Type]() ++ default_ctor.paramss.reduceLeft(_ ++ _).map({
       sym => sym.name.toString -> tpe.member(sym.name).asMethod.returnType
-    }
+    })
   }
 
   private def get_field(obj: Any, obj_tpe: ru.Type, field: String): Any = {
