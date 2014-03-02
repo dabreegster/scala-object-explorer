@@ -49,15 +49,20 @@ object DumpableMacros {
     val fields = caseClassFields(c)(weakTypeOf[A])
     val typeName = weakTypeOf[A].toString
     val obj = newTermName(c.fresh("obj"))
-    val fieldValues = fields map { f ⇒ q"$f → scala.util.dump.Dumpable.DumpableOps($obj.${newTermName(f)}).dump" }
-    c.Expr[Dumpable[A]](q"""
-      scala.util.dump.Dumpable[${weakTypeOf[A]}] { $obj ⇒
+    val materialized = newTermName(c.fresh("materialized"))
+    val tmp = newTermName(c.fresh("tmp"))
+    val fieldValues = fields map { f ⇒
+      q"{ implicit val $tmp = $materialized; $f → scala.util.dump.Dumpable.DumpableOps($obj.${newTermName(f)}).dump }"
+    }
+    c.Expr[Dumpable[A]](q"""{
+      lazy val $materialized: scala.util.dump.Dumpable[${weakTypeOf[A]}] = scala.util.dump.Dumpable[${weakTypeOf[A]}] { $obj ⇒
         scala.util.dump.Object(
           $typeName,
           scala.collection.immutable.ListMap[String, scala.util.dump.DumpTree](..$fieldValues)
         )
       }
-    """)
+      $materialized
+    }""")
   }
 
   private def caseClassFields(c: Context)(tpe: c.Type): List[String] = {
