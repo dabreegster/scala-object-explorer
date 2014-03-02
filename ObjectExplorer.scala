@@ -2,6 +2,7 @@ package scala.util.dump
 
 import scala.language.experimental.macros
 import scala.reflect.macros.Context
+import scala.annotation.implicitNotFound
 import scala.collection.immutable
 
 sealed trait DumpTree
@@ -11,17 +12,12 @@ case class Mapping(map: Map[String, DumpTree]) extends DumpTree
 case class Sequence(seq: List[DumpTree]) extends DumpTree
 case class Leaf(value: String) extends DumpTree
 
-trait Dumpable[A] {
-  def dump(a: A): DumpTree
-}
+@implicitNotFound("Don't know how to dump ${A}")
+case class Dumpable[A](dumpF: A ⇒ DumpTree)
 
 object Dumpable {
-  def apply[A](f: A ⇒ DumpTree) = new Dumpable[A] {
-    def dump(a: A) = f(a)
-  }
-
   implicit class DumpableOps[A](a: A)(implicit dumpable: Dumpable[A]) {
-    def dump = dumpable.dump(a)
+    def dump = dumpable.dumpF(a)
   }
 
   // primitives
@@ -52,18 +48,17 @@ object DumpableMacros {
     scala.util.Try {
       val fields = caseClassFields(c)(weakTypeOf[A])
       val typeName = weakTypeOf[A].toString
-      val fieldValues = fields map { f ⇒ q"$f → scala.util.dump.Dumpable.DumpableOps(a.${newTermName(f)}).dump" }
+      val obj = newTermName(c.fresh("obj"))
+      val fieldValues = fields map { f ⇒ q"$f → scala.util.dump.Dumpable.DumpableOps($obj.${newTermName(f)}).dump" }
       c.Expr[Dumpable[A]](q"""
-        new scala.util.dump.Dumpable[${weakTypeOf[A]}] {
-          def dump(a: ${weakTypeOf[A]}) = scala.util.dump.Object(
+        scala.util.dump.Dumpable[${weakTypeOf[A]}] { $obj ⇒
+          scala.util.dump.Object(
             $typeName,
             scala.collection.immutable.ListMap[String, scala.util.dump.DumpTree](..$fieldValues)
           )
         }
       """)
-    } getOrElse {
-      c.abort(c.enclosingPosition, s"Could not generate dump tree for type ${weakTypeOf[A]}")
-    }
+    } getOrElse ???
   }
 
   private def caseClassFields(c: Context)(tpe: c.Type): List[String] = {
