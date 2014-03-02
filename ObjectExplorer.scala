@@ -24,6 +24,7 @@ object Dumpable {
   implicit def `String is dumpable` = Dumpable[String](a ⇒ Leaf(a))
   implicit def `Double is dumpable` = Dumpable[Double](a ⇒ Leaf(a.toString))
   implicit def `Int is dumpable` = Dumpable[Int](a ⇒ Leaf(a.toString))
+  implicit def `Long is dumpable` = Dumpable[Long](a ⇒ Leaf(a.toString))
 
   // collections
   implicit def `List is dumpable`[A: Dumpable] = Dumpable[List[A]] {
@@ -45,20 +46,18 @@ object Dumpable {
 object DumpableMacros {
   def materializeImpl[A: c.WeakTypeTag](c: Context) = {
     import c.universe._
-    scala.util.Try {
-      val fields = caseClassFields(c)(weakTypeOf[A])
-      val typeName = weakTypeOf[A].toString
-      val obj = newTermName(c.fresh("obj"))
-      val fieldValues = fields map { f ⇒ q"$f → scala.util.dump.Dumpable.DumpableOps($obj.${newTermName(f)}).dump" }
-      c.Expr[Dumpable[A]](q"""
-        scala.util.dump.Dumpable[${weakTypeOf[A]}] { $obj ⇒
-          scala.util.dump.Object(
-            $typeName,
-            scala.collection.immutable.ListMap[String, scala.util.dump.DumpTree](..$fieldValues)
-          )
-        }
-      """)
-    } getOrElse ???
+    val fields = caseClassFields(c)(weakTypeOf[A])
+    val typeName = weakTypeOf[A].toString
+    val obj = newTermName(c.fresh("obj"))
+    val fieldValues = fields map { f ⇒ q"$f → scala.util.dump.Dumpable.DumpableOps($obj.${newTermName(f)}).dump" }
+    c.Expr[Dumpable[A]](q"""
+      scala.util.dump.Dumpable[${weakTypeOf[A]}] { $obj ⇒
+        scala.util.dump.Object(
+          $typeName,
+          scala.collection.immutable.ListMap[String, scala.util.dump.DumpTree](..$fieldValues)
+        )
+      }
+    """)
   }
 
   private def caseClassFields(c: Context)(tpe: c.Type): List[String] = {
