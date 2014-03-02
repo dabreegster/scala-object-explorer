@@ -17,7 +17,7 @@ case class Dumpable[A](dumpF: A ⇒ DumpTree)
 
 object Dumpable {
   implicit class DumpableOps[A](a: A)(implicit dumpable: Dumpable[A]) {
-    def dump = dumpable.dumpF(a)
+    def dump = Option(a).map(dumpable.dumpF).getOrElse(Leaf("null"))
   }
 
   // primitives
