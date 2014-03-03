@@ -1,6 +1,8 @@
-package scala.util
+package scala.util.dump
 
-import scala.reflect.runtime.{universe => ru}
+import scala.language.experimental.macros
+import scala.reflect.macros.Context
+import scala.annotation.implicitNotFound
 import scala.collection.immutable
 
 sealed trait DumpTree
@@ -8,91 +10,98 @@ case class Object(name: String, fields: immutable.ListMap[String, DumpTree]) ext
 // Maps with non-string keys will be coerced
 case class Mapping(map: Map[String, DumpTree]) extends DumpTree
 case class Sequence(seq: List[DumpTree]) extends DumpTree
-case class Leaf(value: Any) extends DumpTree
+case class Leaf(value: String) extends DumpTree
 
-object DumpTree {
-  // If 'x' belongs to class Foo, call: DumpTree.build(x, scala.reflect.runtime.universe.typeOf[Foo])
-  def build(obj: Any, obj_type: ru.Type): DumpTree = {
-    obj match {
-      case ls: List[Any] => Sequence(ls.map(
-        // Thanks http://stackoverflow.com/questions/12842729
-        x => build(x, obj_type.asInstanceOf[ru.TypeRefApi].args.head)
-      ).toList)
-      case ls: Array[_] => Sequence(ls.map(
-        x => build(x, obj_type.asInstanceOf[ru.TypeRefApi].args.head)
-      ).toList)
-      case m: Map[_, _] => Mapping(m.map({
-        case (k, v) => k.toString -> build(v, obj_type.asInstanceOf[ru.TypeRefApi].args.last)
-      }))
-      // case_class_fields breaks on strings, so a special case
-      case x: String => Leaf(x)
-      case _ => {
-        // TODO Ideally, detect case classes from primitives. This seems to work.
-        val fields = case_class_fields(obj_type)
-        if (fields.isEmpty) {
-          Leaf(obj)
-        } else {
-          Object(obj_type.toString, immutable.ListMap[String, DumpTree]() ++ (
-            fields.keys.map(name => name -> build(get_field(obj, obj_type, name), fields(name)))
-          ))
-        }
-      }
+@implicitNotFound("Don't know how to dump ${A}")
+case class Dumpable[A](dumpF: A ⇒ DumpTree)
+
+object Dumpable {
+  implicit class DumpableOps[A](a: A)(implicit dumpable: Dumpable[A]) {
+    def dump = Option(a).map(dumpable.dumpF).getOrElse(Leaf("null"))
+  }
+
+  // primitives
+  implicit def `String is dumpable` = Dumpable[String](a ⇒ Leaf(a))
+  implicit def `Double is dumpable` = Dumpable[Double](a ⇒ Leaf(a.toString))
+  implicit def `Int is dumpable` = Dumpable[Int](a ⇒ Leaf(a.toString))
+  implicit def `Long is dumpable` = Dumpable[Long](a ⇒ Leaf(a.toString))
+
+  // collections
+  implicit def `List is dumpable`[A: Dumpable] = Dumpable[List[A]] {
+    as ⇒ Sequence(as.map(_.dump))
+  }
+
+  implicit def `Array is dumpable`[A: Dumpable] = Dumpable[Array[A]] {
+    as ⇒ Sequence(as.map(_.dump).toList)
+  }
+
+  implicit def `Map is dumpable`[A, B: Dumpable] = Dumpable[Map[A, B]] {
+    as ⇒ Mapping(as.map { case (k, v) ⇒ (k.toString, v.dump) }.toMap)
+  }
+
+  // case classes
+  implicit def `Anything could be dumpable`[A]: Dumpable[A] = macro DumpableMacros.materializeImpl[A]
+}
+
+object DumpableMacros {
+  def materializeImpl[A: c.WeakTypeTag](c: Context) = {
+    import c.universe._
+    val fields = caseClassFields(c)(weakTypeOf[A])
+    val typeName = weakTypeOf[A].toString
+    val obj = newTermName(c.fresh("obj"))
+    val materialized = newTermName(c.fresh("materialized"))
+    val tmp = newTermName(c.fresh("tmp"))
+    val fieldValues = fields map { f ⇒
+      q"{ implicit val $tmp = $materialized; $f → scala.util.dump.Dumpable.DumpableOps($obj.${newTermName(f)}).dump }"
     }
+    c.Expr[Dumpable[A]](q"""{
+      lazy val $materialized: scala.util.dump.Dumpable[${weakTypeOf[A]}] = scala.util.dump.Dumpable[${weakTypeOf[A]}] { $obj ⇒
+        scala.util.dump.Object(
+          $typeName,
+          scala.collection.immutable.ListMap[String, scala.util.dump.DumpTree](..$fieldValues)
+        )
+      }
+      $materialized
+    }""")
   }
 
-  // Thanks http://stackoverflow.com/questions/16079113
-  private def case_class_fields(tpe: ru.Type): immutable.ListMap[String, ru.Type] = {
-    val ctor = tpe.declaration(ru.nme.CONSTRUCTOR)
-    val default_ctor =
-      if (ctor.isMethod)
-        ctor.asMethod
-      else
-        ctor.asTerm.alternatives.map(_.asMethod).find(_.isPrimaryConstructor).get
-
-    return immutable.ListMap[String, ru.Type]() ++ default_ctor.paramss.reduceLeft(_ ++ _).map({
-      sym => sym.name.toString -> tpe.member(sym.name).asMethod.returnType
-    })
-  }
-
-  private def get_field(obj: Any, obj_tpe: ru.Type, field: String): Any = {
-    val m = ru.runtimeMirror(obj.getClass.getClassLoader)
-    val term = obj_tpe.declaration(ru.newTermName(field)).asTerm
-    val im = m.reflect(obj)
-    return im.reflectField(term).get
+  private def caseClassFields(c: Context)(tpe: c.Type): List[String] = {
+    import c.universe._
+    val ctor = tpe.declaration(nme.CONSTRUCTOR)
+    val defaultCtor = if (ctor.isMethod) {
+      ctor.asMethod
+    } else {
+      ctor.asTerm.alternatives.map(_.asMethod).find(_.isPrimaryConstructor).get
+    }
+    defaultCtor.paramss.reduceLeft(_ ++ _).map(_.name.toString)
   }
 }
 
-object AsciiTreeViewer {
-  def view(t: DumpTree) = show(t, 0, true)
+object AsciiTreeView {
+  import Dumpable._
 
-  private def show(t: DumpTree, level: Int, indent: Boolean) {
-    val header =
-      if (indent)
-        "  " * level
-      else
-        ""
+  def apply[A: Dumpable](a: A) = show(a.dump, 0, true)
+
+  private def show(t: DumpTree, level: Int, indentFirstLine: Boolean): String = {
+    val indent = "  " * level
+    val doubleIndent = indent + "  "
+    val header = if (indentFirstLine) indent else ""
     t match {
-      case Object(name, fields) => {
-        println(header + name)
-        for ((field, value) <- fields) {
-          print(("  " * (level + 1)) + field + " = ")
-          show(value, level + 1, false)
-        }
-      }
-      case Sequence(seq) => {
-        println(header + "[")
-        seq.foreach(x => show(x, level + 1, true))
-        println(("  " * level) + "]")
-      }
-      case Mapping(m) => {
-        println(header + "{")
-        for ((k, v) <- m) {
-          print(("  " * (level + 1)) + k + " -> ")
-          show(v, level + 1, false)
-        }
-        println(("  " * level) + "}")
-      }
-      case Leaf(x) => println(header + x)
+      case Leaf(x) ⇒
+        header + x
+
+      case Object(name, fields) ⇒
+        header + name + (fields map { case (k, v) ⇒
+          doubleIndent + s"$k = " + show(v, level + 1, false)
+        }).mkString("\n", ",\n", "")
+
+      case Sequence(seq) ⇒
+        s"$header[" + seq.map(show(_, level + 1, true)).mkString("\n", ",\n", "\n") + s"$indent]"
+
+      case Mapping(m) ⇒
+        s"$header{" + (m map { case (k, v) ⇒
+          doubleIndent + s"$k -> " + show(v, level + 1, false)
+        }).mkString("\n", ",\n", "\n") + s"$indent}"
     }
   }
 }

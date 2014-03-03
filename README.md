@@ -7,17 +7,19 @@ them in a tree form.
 Basic usage:
 
 ```scala
-import scala.util.{DumpTree, AsciiTreeViewer}
+import scala.util.dump._
 
 // Example case class
 case class Scenario(agents: List[Agent], modes: Array[String], name: String, id: Long)
 case class Agent(num: Int, times: Map[String, Double])
 
+// Some data
 val a1 = Agent(1, Map("baseline" -> 2.0, "tolls" -> 5.0))
 val a2 = Agent(2, Map("baseline" -> 3.0, "tolls" -> 2.3))
 val s = Scenario(List(a1, a2), Array("baseline", "tolls"), "trial", 42)
-// You have to hardcode the type name to preserve a type tag at compile-time before erasure
-AsciiTreeViewer.view(DumpTree.build(s, scala.reflect.runtime.universe.typeOf[Scenario]))
+
+// Dump!
+println(AsciiTreeView(s))
 ```
 
 The output is:
@@ -26,24 +28,24 @@ The output is:
 Scenario
   agents = [
     Agent
-      num = 1
+      num = 1,
       times = {
-        baseline -> 2.0
+        baseline -> 2.0,
         tolls -> 5.0
-      }
+      },
     Agent
-      num = 2
+      num = 2,
       times = {
-        baseline -> 3.0
+        baseline -> 3.0,
         tolls -> 2.3
       }
-  ]
+  ],
   modes = [
-    baseline
+    baseline,
     tolls
-  ]
-  name = trial
-  id = 42
+  ],
+  name = trial,
+  id = Long
 ```
 
 It wouldn't be hard to make a graphical viewer too using Swing's JTree.
