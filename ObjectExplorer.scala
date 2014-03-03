@@ -13,7 +13,7 @@ case class Sequence(seq: List[DumpTree]) extends DumpTree
 case class Leaf(value: String) extends DumpTree
 
 @implicitNotFound("Don't know how to dump ${A}")
-case class Dumpable[A](dumpF: A ⇒ DumpTree)
+case class Dumpable[A](dumpF: A => DumpTree)
 
 object Dumpable {
   implicit class DumpableOps[A](a: A)(implicit dumpable: Dumpable[A]) {
@@ -21,22 +21,22 @@ object Dumpable {
   }
 
   // primitives
-  implicit def `String is dumpable` = Dumpable[String](a ⇒ Leaf(a))
-  implicit def `Double is dumpable` = Dumpable[Double](a ⇒ Leaf(a.toString))
-  implicit def `Int is dumpable` = Dumpable[Int](a ⇒ Leaf(a.toString))
-  implicit def `Long is dumpable` = Dumpable[Long](a ⇒ Leaf(a.toString))
+  implicit def `String is dumpable` = Dumpable[String](a => Leaf(a))
+  implicit def `Double is dumpable` = Dumpable[Double](a => Leaf(a.toString))
+  implicit def `Int is dumpable` = Dumpable[Int](a => Leaf(a.toString))
+  implicit def `Long is dumpable` = Dumpable[Long](a => Leaf(a.toString))
 
   // collections
   implicit def `List is dumpable`[A: Dumpable] = Dumpable[List[A]] {
-    as ⇒ Sequence(as.map(_.dump))
+    as => Sequence(as.map(_.dump))
   }
 
   implicit def `Array is dumpable`[A: Dumpable] = Dumpable[Array[A]] {
-    as ⇒ Sequence(as.map(_.dump).toList)
+    as => Sequence(as.map(_.dump).toList)
   }
 
   implicit def `Map is dumpable`[A, B: Dumpable] = Dumpable[Map[A, B]] {
-    as ⇒ Mapping(as.map { case (k, v) ⇒ (k.toString, v.dump) }.toMap)
+    as => Mapping(as.map { case (k, v) => (k.toString, v.dump) }.toMap)
   }
 
   // case classes
@@ -51,11 +51,11 @@ object DumpableMacros {
     val obj = newTermName(c.fresh("obj"))
     val materialized = newTermName(c.fresh("materialized"))
     val tmp = newTermName(c.fresh("tmp"))
-    val fieldValues = fields map { f ⇒
-      q"{ implicit val $tmp = $materialized; $f → scala.util.dump.Dumpable.DumpableOps($obj.${newTermName(f)}).dump }"
+    val fieldValues = fields map { f =>
+      q"{ implicit val $tmp = $materialized; $f -> scala.util.dump.Dumpable.DumpableOps($obj.${newTermName(f)}).dump }"
     }
     c.Expr[Dumpable[A]](q"""{
-      lazy val $materialized: scala.util.dump.Dumpable[${weakTypeOf[A]}] = scala.util.dump.Dumpable[${weakTypeOf[A]}] { $obj ⇒
+      lazy val $materialized: scala.util.dump.Dumpable[${weakTypeOf[A]}] = scala.util.dump.Dumpable[${weakTypeOf[A]}] { $obj =>
         scala.util.dump.Object(
           $typeName,
           scala.collection.immutable.ListMap[String, scala.util.dump.DumpTree](..$fieldValues)
@@ -87,19 +87,19 @@ object AsciiTreeView {
     val doubleIndent = indent + "  "
     val header = if (indentFirstLine) indent else ""
     t match {
-      case Leaf(x) ⇒
+      case Leaf(x) =>
         header + x
 
-      case Object(name, fields) ⇒
-        header + name + (fields map { case (k, v) ⇒
+      case Object(name, fields) =>
+        header + name + (fields map { case (k, v) =>
           doubleIndent + s"$k = " + show(v, level + 1, false)
         }).mkString("\n", ",\n", "")
 
-      case Sequence(seq) ⇒
+      case Sequence(seq) =>
         s"$header[" + seq.map(show(_, level + 1, true)).mkString("\n", ",\n", "\n") + s"$indent]"
 
-      case Mapping(m) ⇒
-        s"$header{" + (m map { case (k, v) ⇒
+      case Mapping(m) =>
+        s"$header{" + (m map { case (k, v) =>
           doubleIndent + s"$k -> " + show(v, level + 1, false)
         }).mkString("\n", ",\n", "\n") + s"$indent}"
     }
